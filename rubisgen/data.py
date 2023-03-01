@@ -49,7 +49,6 @@ def create_dataset(
         num_proc: Optional[int] = None,
         seed: int = 42,
         n_chunks: int = -1,
-
 ):
     dataset = None
 
@@ -82,7 +81,7 @@ def create_dataset(
             return True
 
         def tokenize_function(examples: Dict[str, Any]) -> Dict[str, Any]:
-            sequence = spaceout(unspace(examples['sequence']))
+            sequence = '1' + unspace(examples['sequence']) + '2'
             return tokenizer(sequence, **tokenizer_kwargs)
 
         if sequences is None:
