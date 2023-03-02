@@ -6,7 +6,7 @@ from rubisgen.modeling_progen import ProGenForCausalLM
 from rubisgen.util import write_fasta, sequences2records
 
 # Load the model
-model = ProGenForCausalLM.from_pretrained("rubisgen/progen-1.3M")
+model = ProGenForCausalLM.from_pretrained('training/progen2-small/checkpoint-best')
 if torch.cuda.is_available():
     model = model.cuda()
 
@@ -35,7 +35,7 @@ for temperature in tqdm(temperatures):
             num_return_sequences=batch_size,
             **generation_config
         )
-        output_ids = output_ids.cpu().numpy().tolist()
+        output_ids = output_ids.cpu().numpy()[:, 1:-1].tolist()  # drop EOS and BOS
         sequences.append(tokenizer.decode_batch(output_ids))
 
     records = sequences2records(sequences)
