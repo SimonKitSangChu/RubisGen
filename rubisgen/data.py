@@ -24,6 +24,8 @@ def create_dataset(
         split: Optional[Tuple[float, float, float]] = (0.99, 0.005, 0.005),
         filtering_kwargs: Optional[Dict[str, Any]] = None,
         tokenizer_kwargs: Optional[Dict[str, Any]] = None,
+        min_length: int = 100,
+        max_length: int = 600,
         num_proc: Optional[int] = None,
         seed: int = 42,
         n_chunks: int = -1,
@@ -44,8 +46,8 @@ def create_dataset(
 
         if filtering_kwargs is None:
             filtering_kwargs = {}
-        min_length = filtering_kwargs.get('min_length', 8)
-        max_length = filtering_kwargs.get('max_length', None)
+        min_length = filtering_kwargs.get('min_length', min_length)
+        max_length = filtering_kwargs.get('max_length', max_length)
 
         def filter_function(examples: Dict[str, Any]) -> Dict[str, Any]:
             sequence = unspace(examples['sequence'])
