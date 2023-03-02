@@ -106,13 +106,11 @@ def create_dataset(
                 shutil.rmtree(chunk_dir)
             dataset = load_from_disk(dataset_dir)  # reload to reset cache
 
-    if split is None:
-        dataset_dict = dataset
-    else:
-        dataset_dict = train_val_test_split(dataset, split=split, seed=seed)
+    if split is not None:
+        dataset = train_val_test_split(dataset, split=split, seed=seed)
 
     if dataset_dir:
-        dataset_dict.save_to_disk(dataset_dir)
+        dataset.save_to_disk(dataset_dir)
         clear_arrow_cache()
         metadata = {
             'timestamp': datetime.now().isoformat(),
@@ -120,7 +118,7 @@ def create_dataset(
         }
         write_json(metadata, dataset_dir / 'metadata.json')
 
-    return dataset_dict
+    return dataset
 
 
 @dataclass

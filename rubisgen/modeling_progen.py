@@ -551,23 +551,23 @@ class ProGenForCausalLM(ProGenPreTrainedModel):
         self.model_parallel = False
         self.device_map = None
 
-    def parallelize(self, device_map=None):
-        self.device_map = (
-            get_device_map(len(self.transformer.h), range(torch.cuda.device_count()))
-            if device_map is None
-            else device_map
-        )
-        assert_device_map(self.device_map, len(self.transformer.h))
-        self.transformer.parallelize(self.device_map)
-        self.lm_head = self.lm_head.to(self.transformer.first_device)
-        self.model_parallel = True
-
-    def deparallelize(self):
-        self.transformer.deparallelize()
-        self.transformer = self.transformer.to("cpu")
-        self.lm_head = self.lm_head.to("cpu")
-        self.model_parallel = False
-        torch.cuda.empty_cache()
+    # def parallelize(self, device_map=None):
+    #     self.device_map = (
+    #         get_device_map(len(self.transformer.h), range(torch.cuda.device_count()))
+    #         if device_map is None
+    #         else device_map
+    #     )
+    #     assert_device_map(self.device_map, len(self.transformer.h))
+    #     self.transformer.parallelize(self.device_map)
+    #     self.lm_head = self.lm_head.to(self.transformer.first_device)
+    #     self.model_parallel = True
+    #
+    # def deparallelize(self):
+    #     self.transformer.deparallelize()
+    #     self.transformer = self.transformer.to("cpu")
+    #     self.lm_head = self.lm_head.to("cpu")
+    #     self.model_parallel = False
+    #     torch.cuda.empty_cache()
 
     def get_output_embeddings(self):
         return None
@@ -642,9 +642,9 @@ class ProGenForCausalLM(ProGenPreTrainedModel):
         hidden_states = transformer_outputs[0]
 
         # Set device for model parallelism
-        if self.model_parallel:
-            torch.cuda.set_device(self.transformer.first_device)
-            hidden_states = hidden_states.to(self.lm_head.weight.device)
+        # if self.model_parallel:
+        #     torch.cuda.set_device(self.transformer.first_device)
+        #     hidden_states = hidden_states.to(self.lm_head.weight.device)
 
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
