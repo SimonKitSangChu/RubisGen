@@ -1,41 +1,19 @@
 from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from os import PathLike
 import shutil
-from typing import Optional, Any, Dict, Tuple, Iterable, List, Union
+from typing import Optional, Any, Dict, Tuple, Iterable, List
 
+from tokenizers import Tokenizer
 from datasets import Dataset, DatasetDict, load_from_disk, concatenate_datasets
 from transformers import PreTrainedTokenizer
-from transformers.data.data_collator import DataCollatorForLanguageModeling
 from transformers.utils import logging
 import torch
 
-from protldm.util import read_fasta, spaceout, unspace, write_json, clear_arrow_cache, train_val_test_split
+from .util import read_fasta, unspace, write_json, clear_arrow_cache, train_val_test_split
 
 logger = logging.get_logger(__name__)
-
-
-def create_test_dataset(
-        tokenizer: PreTrainedTokenizer,
-        tokenizer_kwargs: Optional[Dict[str, Any]] = None,
-        max_length: int = 512,
-):
-    if tokenizer_kwargs is None:
-        tokenizer_kwargs = {'padding': 'longest', 'truncation': True, 'max_length': 2048}
-
-    sequences = [
-        'AAAA' * max_length,
-        'ATCG' * max_length,
-    ]
-    dataset = Dataset.from_dict({'sequence': sequences})
-
-    def tokenize_function(examples: Dict[str, Any]) -> Dict[str, Any]:
-        sequence = spaceout(unspace(examples['sequence']))
-        return tokenizer(sequence, **tokenizer_kwargs)
-
-    dataset = dataset.map(tokenize_function, batched=False, )
-    dataset_dict = DatasetDict(train=dataset, eval=dataset, test=dataset)
-    return dataset_dict
 
 
 def create_dataset(
@@ -62,7 +40,7 @@ def create_dataset(
 
     if dataset is None:
         if tokenizer_kwargs is None:
-            tokenizer_kwargs = {'padding': 'longest', 'truncation': True, 'max_length': 2048}
+            tokenizer_kwargs = {}
 
         if filtering_kwargs is None:
             filtering_kwargs = {}
@@ -82,7 +60,7 @@ def create_dataset(
 
         def tokenize_function(examples: Dict[str, Any]) -> Dict[str, Any]:
             sequence = '1' + unspace(examples['sequence']) + '2'
-            return tokenizer(sequence, **tokenizer_kwargs)
+            return {'input_ids': tokenizer.encode(sequence, **tokenizer_kwargs).ids}
 
         if sequences is None:
             sequences = read_fasta(fasta, format='sequence', return_dict=True)
@@ -95,9 +73,6 @@ def create_dataset(
                 batched=False,
                 num_proc=torch.get_num_threads() if num_proc is None else num_proc,
             )
-            if dataset_dir:
-                dataset.save_to_disk(dataset_dir)
-                clear_arrow_cache()
         else:
             keys = list(sequences.keys())
             sequences_list = list(sequences.values())
@@ -131,64 +106,39 @@ def create_dataset(
                 shutil.rmtree(chunk_dir)
             dataset = load_from_disk(dataset_dir)  # reload to reset cache
 
-        if dataset_dir:
-            metadata = {
-                'timestamp': datetime.now().isoformat(),
-                'fasta': fasta,
-                'tokenizer': tokenizer.__class__.__name__,
-                'tokenizer_kwargs': tokenizer_kwargs,
-            }
-            write_json(metadata, dataset_dir / 'metadata.json')
-
     if split is None:
-        return dataset
+        dataset_dict = dataset
     else:
-        return train_val_test_split(dataset, split=split, seed=seed)
+        dataset_dict = train_val_test_split(dataset, split=split, seed=seed)
+
+    if dataset_dir:
+        dataset_dict.save_to_disk(dataset_dir)
+        clear_arrow_cache()
+        metadata = {
+            'timestamp': datetime.now().isoformat(),
+            'fasta': fasta,
+        }
+        write_json(metadata, dataset_dir / 'metadata.json')
+
+    return dataset_dict
 
 
-class DataCollatorForProtT5(DataCollatorForLanguageModeling):
-    def __init__(self, tokenizer: PreTrainedTokenizer, mlm_probability: float = 0.15, mlm: bool = True,
-                 skip_special_tokens: bool = False):
-        super().__init__(tokenizer, mlm_probability=mlm_probability, mlm=mlm)
-        self.skip_special_tokens = skip_special_tokens
+@dataclass
+class DataCollatorWithPadding:
+    tokenizer: Tokenizer
+    pad_token_id: int = 0
 
-    def __call__(self, features, return_tensors='pt'):
-        if return_tensors != 'pt':
-            raise NotImplementedError('Only PyTorch tensors are supported.')
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
+        max_length = max(len(x['input_ids']) for x in features)
 
-        return super().__call__(features, return_tensors=return_tensors)
+        input_ids = []
+        attention_mask = []
+        for feature in features:
+            input_ids.append(feature['input_ids'] + [self.pad_token_id] * (max_length - len(feature['input_ids'])))
+            attention_mask.append([1] * len(feature['input_ids']) + [0] * (max_length - len(feature['input_ids'])))
 
-    def torch_mask_tokens(self, inputs: Any, special_tokens_mask: Optional[Any] = None) -> Tuple[Any, Any]:
-        """
-        Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original.
-        """
-        import torch
-
-        labels = inputs.clone()
-        # We sample a few tokens in each sequence for MLM training (with probability `self.mlm_probability`)
-        probability_matrix = torch.full(labels.shape, self.mlm_probability)
-        if special_tokens_mask is None:
-            special_tokens_mask = [
-                self.tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()
-            ]
-            special_tokens_mask = torch.tensor(special_tokens_mask, dtype=torch.bool)
-        else:
-            special_tokens_mask = special_tokens_mask.bool()
-
-        if self.skip_special_tokens:
-            probability_matrix.masked_fill_(special_tokens_mask, value=0.0)
-        masked_indices = torch.bernoulli(probability_matrix).bool()
-        labels[~masked_indices] = -100  # We only compute loss on masked tokens
-
-        # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
-        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices & ~special_tokens_mask
-        inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
-
-        # 10% of the time, we replace masked input tokens with random word
-        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced & ~special_tokens_mask
-        random_words = torch.randint(len(self.tokenizer), labels.shape, dtype=torch.long)
-        inputs[indices_random] = random_words[indices_random]
-
-        # The rest of the time (10% of the time) we keep the masked input tokens unchanged
-        return inputs, labels
-
+        return {
+            'input_ids': torch.tensor(input_ids, dtype=torch.long),
+            'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
+            'labels': torch.tensor(input_ids, dtype=torch.long),
+        }

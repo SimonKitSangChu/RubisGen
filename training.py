@@ -5,12 +5,11 @@ import sys
 
 from datasets import load_from_disk
 import torch
-from transformers import EarlyStoppingCallback, Seq2SeqTrainingArguments, Seq2SeqTrainer, \
-    DataCollatorForLanguageModeling
+from transformers import EarlyStoppingCallback, Seq2SeqTrainingArguments, Seq2SeqTrainer
 from transformers.utils import logging
 
 from rubisgen.util import read_json, write_json
-from rubisgen.data import create_dataset
+from rubisgen.data import create_dataset, DataCollatorWithPadding
 from rubisgen.tokenization_progen import create_tokenizer
 from rubisgen.configuration_progen import ProGenConfig
 from rubisgen.modeling_progen import ProGenForCausalLM
@@ -30,11 +29,9 @@ parser.add_argument('--max_epochs', default=100, type=int, help='Max epochs')
 parser.add_argument('--warmup_steps', default=None, type=int, help='(experimental) Warmup steps')
 parser.add_argument('--logging_steps', default=10, type=int, help='Logging steps')
 parser.add_argument('--save_steps', default=100, type=int, help='Save steps')
-parser.add_argument('--max_length', default=1024, type=int, help='Max preprocessed sequence length')
 parser.add_argument('--debug', action='store_true', help='Debug mode')
 parser.add_argument('--no_cuda', action='store_true', help='No CUDA mode')
 parser.add_argument('--fp16', action='store_true', help='Use fp16')
-parser.add_argument('--collator_config', default=None, type=str, help='Data collator config in json')
 parser.add_argument('--build_dataset_only', action='store_true', help='Terminate after building dataset')
 parser.add_argument('--dataset_n_chunks', default=1, type=int, help='Build dataset in chunks')
 parser.add_argument('--num_proc', default=None, type=int, help='num_proc for building dataset')
@@ -59,13 +56,7 @@ def main():
 
     # dataset config
     tokenizer = create_tokenizer()
-
-    collator_config = dict(mlm=True, mlm_probability=0.15)
-    if args.collator_config is not None:
-        custom_config = read_json(args.collator_config)
-        collator_config.update(custom_config)
-
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, **collator_config)
+    collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     if (dataset_dir := args.dataset_dir) and osp.exists(args.dataset_dir):
         dataset_dict = load_from_disk(dataset_dir)
@@ -77,13 +68,14 @@ def main():
             fasta=args.fasta,
             split=(1 - 2 * test_ratio, test_ratio, test_ratio),
             n_chunks=args.dataset_n_chunks,
-            tokenizer_kwargs=dict(padding='longest', truncation=True, max_length=args.max_length),
             num_proc=args.num_proc
         )
 
     if args.build_dataset_only:
         logger.info('terminates with build_dataset_only mode')
         sys.exit()
+
+    dataset_dict = dataset_dict.remove_columns(['id', 'sequence'])
 
     # training config
     if args.debug:
