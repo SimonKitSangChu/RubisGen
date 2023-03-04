@@ -22,21 +22,23 @@ generation_config = {
     'top_p': 0.9,
 }
 
-temperatures = (0.7, 1, 1.5, 2)
+temperatures = (1., 1.5, 2.)
 num_return_sequences = 100
-batch_size = 10
+batch_size = 20
 
-for temperature in tqdm(temperatures):
+for temperature in temperatures:
     sequences = []
-    for _ in range(num_return_sequences // batch_size):
+    for _ in tqdm(range(num_return_sequences // batch_size), desc=f'Temperature = {temperature}'):
         output_ids = model.generate(
             input_ids,
             temperature=temperature,
             num_return_sequences=batch_size,
             **generation_config
         )
-        output_ids = output_ids.cpu().numpy()[:, 1:-1].tolist()  # drop EOS and BOS
-        sequences.append(tokenizer.decode_batch(output_ids))
+        output_ids = output_ids.cpu().numpy().tolist()
+        sequences_ = tokenizer.decode_batch(output_ids)
+        sequences_ = [s.lstrip('1').strip('2') for s in sequences_]
+        sequences.extend(sequences_)
 
     records = sequences2records(sequences)
-    write_fasta(f'temperature{temperature}.fasta', records)
+    write_fasta(f'temp_{temperature}.fasta', records)
