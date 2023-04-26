@@ -39,7 +39,7 @@ def read_fasta(fasta: PathLike, format: str = 'record', return_dict: bool = True
         raise ValueError(f'Unknown format: {format}')
 
 
-def separate_fasta(fasta: PathLike, dest_dir: Optional[PathLike] = None) -> None:
+def separate_fasta(fasta: PathLike, dest_dir: Optional[PathLike] = None, n_mer: int = 1) -> None:
     fasta = Path(fasta)
     if dest_dir is None:
         dest_dir = fasta.parent
@@ -50,7 +50,7 @@ def separate_fasta(fasta: PathLike, dest_dir: Optional[PathLike] = None) -> None
     for k, record in records.items():
         write_fasta(
             dest_dir / f'{fasta.stem}_{k}.fasta',
-            [record]
+            [record] * n_mer
         )
 
 
