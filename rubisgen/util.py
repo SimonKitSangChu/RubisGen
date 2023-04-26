@@ -39,6 +39,21 @@ def read_fasta(fasta: PathLike, format: str = 'record', return_dict: bool = True
         raise ValueError(f'Unknown format: {format}')
 
 
+def separate_fasta(fasta: PathLike, dest_dir: Optional[PathLike] = None) -> None:
+    fasta = Path(fasta)
+    if dest_dir is None:
+        dest_dir = fasta.parent
+    else:
+        dest_dir = Path(dest_dir)
+
+    records = read_fasta(fasta, format='sequence', return_dict=True)
+    for k, record in records.items():
+        write_fasta(
+            dest_dir / f'{fasta.stem}_{k}.fasta',
+            [record]
+        )
+
+
 def read_json(json_file: PathLike) -> Dict[str, Any]:
     with open(json_file) as handle:
         return json.load(handle)
