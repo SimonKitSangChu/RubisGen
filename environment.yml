@@ -2,18 +2,15 @@ channels:
   - conda-forge
   - bioconda
   - plotly
-  - pytorch
   - nvidia
 dependencies:
-  - conda-forge::python==3.9.*
+  - conda-forge::python==3.10.*
   - conda-forge::pip
-  - conda-forge::cudatoolkit==11.6.*
+  - nvidia::cudatoolkit==11.6.*
   - bioconda::mmseqs2
   - bioconda::blast
   - bioconda::clustalw
   - plotly::plotly
-  - pytorch::pytorch>=1.12.*
-  - pytorch::pytorch-cuda=11.6
   - pip:
       - accelerate
       - biopython
@@ -21,6 +18,7 @@ dependencies:
       - deepspeed
       - diffusers
       - pytest
+      - torch
       - logomaker
       - numpy
       - transformers
