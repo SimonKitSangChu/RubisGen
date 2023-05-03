@@ -37,7 +37,6 @@ def main():
         'max_length': args.max_length,
         'min_length': args.min_length,
         'top_p': args.top_p,
-        'num_return_sequences': args.batch_size,
         'temperature': args.temperature,
     }
     if args.generate_config is not None:
@@ -47,7 +46,7 @@ def main():
             raise ValueError('batch_size should be parsed separately from generate_config')
 
         generate_config.update(generate_config_)
- 
+
     # prepare start tokens
     start_tokens = generate_config.pop('start_tokens', args.start_tokens)
     if start_tokens is None:
@@ -60,15 +59,24 @@ def main():
 
     # generate sequences
     sequences = []
-    for _ in tqdm(range(num_return_sequences // args.batch_size), desc='Generating sequences'):
+
+    batch_size = min(args.batch_size, num_return_sequences)
+    for _ in tqdm(range(num_return_sequences // batch_size), desc='Generating sequences'):
         output_ids = model.generate(
             input_ids,
+            num_return_sequences=batch_size,
             **generate_config
         )
         output_ids = output_ids.cpu().numpy().tolist()
         sequences_ = tokenizer.decode_batch(output_ids)
         sequences_ = [s.lstrip('1').rstrip('2') for s in sequences_]
         sequences.extend(sequences_)
+
+    # manually filter by min_length
+    if min_length := generate_config.get('min_length', 0):
+        sequences = [s for s in sequences if len(s) >= min_length]
+    if not sequences:
+        raise ValueError(f'No generated sequence longer than min_length {min_length}')
 
     # dump sequences
     records = sequences2records(sequences)
