@@ -46,7 +46,7 @@ def separate_fasta(fasta: PathLike, dest_dir: Optional[PathLike] = None, n_mer: 
     else:
         dest_dir = Path(dest_dir)
 
-    records = read_fasta(fasta, format='sequence', return_dict=True)
+    records = read_fasta(fasta, format='record', return_dict=True)
     for k, record in records.items():
         write_fasta(
             dest_dir / f'{fasta.stem}_{k}.fasta',
