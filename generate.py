@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--output_fasta', default=None, help='Output fasta file')
 parser.add_argument('--model_checkpoint', default=None, type=str, help='Model checkpoint')
 parser.add_argument('--temperature', default=1., type=float, help='Temperature')
-parser.add_argument('--top_p', default=0.9, type=float, help='Top p')
+parser.add_argument('--top_p', default=0.75, type=float, help='Top p')
 parser.add_argument('--min_length', default=300, type=int, help='Min length')
 parser.add_argument('--max_length', default=500, type=int, help='Max length')
 parser.add_argument('--num_return_sequences', default=100, type=int, help='Number of sequences to generate')
@@ -69,14 +69,9 @@ def main():
         )
         output_ids = output_ids.cpu().numpy().tolist()
         sequences_ = tokenizer.decode_batch(output_ids)
-        sequences_ = [s.lstrip('1').rstrip('2') for s in sequences_]
+        sequences_ = [s.lstrip('1').rstrip('2') for s in sequences_]  # drop BOS and EOS
+        sequences_ = [s for s in sequences_ if '1' not in s and '2' not in s]  # BOS and EOS in main sequence
         sequences.extend(sequences_)
-
-    # manually filter by min_length
-    if min_length := generate_config.get('min_length', 0):
-        sequences = [s for s in sequences if len(s) >= min_length]
-    if not sequences:
-        raise ValueError(f'No generated sequence longer than min_length {min_length}')
 
     # dump sequences
     records = sequences2records(sequences)

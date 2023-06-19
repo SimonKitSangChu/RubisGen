@@ -20,8 +20,8 @@ parser.add_argument('--dataset_dir', default=None, help='Dataset directory')
 parser.add_argument('--fasta', default=None, help='Fasta file')
 parser.add_argument('--lr', default=2e-4, type=float, help='Learning rate')
 parser.add_argument('--weight_decay', default=0.0, type=float, help='Weight decay')
-parser.add_argument('--local_batch_size', default=4, type=int, help='Local batch size')
-parser.add_argument('--global_batch_size', default=2048, type=int, help='Global batch size')
+parser.add_argument('--local_batch_size', default=2, type=int, help='Local batch size')
+parser.add_argument('--global_batch_size', default=2, type=int, help='Global batch size')
 parser.add_argument('--scratch_model_config', default=None, type=str, help='Scratch model config in json')
 parser.add_argument('--max_steps', default=-1, type=int, help='Max steps; overrides --max_epochs')
 parser.add_argument('--max_epochs', default=100, type=int, help='Max epochs')
@@ -34,7 +34,7 @@ parser.add_argument('--fp16', action='store_true', help='Use fp16')
 parser.add_argument('--build_dataset_only', action='store_true', help='Terminate after building dataset')
 parser.add_argument('--dataset_n_chunks', default=1, type=int, help='Build dataset in chunks')
 parser.add_argument('--num_proc', default=None, type=int, help='num_proc for building dataset')
-parser.add_argument('--test_ratio', default=0.02, type=float, help='Validation/Test ratio to training set')
+parser.add_argument('--test_ratio', default=0.1, type=float, help='Validation/Test ratio to training set')
 parser.add_argument('--resume_from_checkpoint', default=None, type=str, help='Resume from training checkpoint')
 parser.add_argument('--model_checkpoint', default=None, type=str, help='Finetune from checkpoint')
 args, unk = parser.parse_known_args()
@@ -98,7 +98,7 @@ def main():
         eval_steps=args.save_steps,
         save_steps=args.save_steps,
         eval_accumulation_steps=1,
-        save_total_limit=None,
+        save_total_limit=1,
         max_steps=1 if args.debug else args.max_steps,  # overrides num_train_steps
         num_train_epochs=args.max_epochs,
         per_device_train_batch_size=local_batch_size,
@@ -119,6 +119,7 @@ def main():
         prediction_loss_only=True,
         do_eval=True,
         ddp_find_unused_parameters=False,
+        max_grad_norm=0.25,
     )
 
     # trainer config
