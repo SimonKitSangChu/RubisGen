@@ -53,27 +53,7 @@ def main():
         logger.warning(f'unknown args: {unk}')
     write_json(unk, output_dir / 'unk.json')
 
-    # dataset config
-    tokenizer = create_tokenizer()
-    collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-    if (dataset_dir := args.dataset_dir) and osp.exists(args.dataset_dir):
-        dataset_dict = load_from_disk(dataset_dir)
-    else:
-        test_ratio = args.test_ratio
-        dataset_dict = create_dataset(
-            dataset_dir=args.dataset_dir,
-            tokenizer=tokenizer,
-            fasta=args.fasta,
-            split=(1 - 2 * test_ratio, test_ratio, test_ratio),
-            n_chunks=args.dataset_n_chunks,
-            num_proc=args.num_proc
-        )
-
-    if args.build_dataset_only:
-        logger.info('terminates with build_dataset_only mode')
-        sys.exit()
-
+    dataset_dict = load_from_disk(args.dataset_dir)
     dataset_dict = dataset_dict.remove_columns(['id', 'sequence'])
 
     # training config

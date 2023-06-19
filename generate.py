@@ -38,6 +38,8 @@ def main():
         'min_length': args.min_length,
         'top_p': args.top_p,
         'temperature': args.temperature,
+        'bos_token_id': 3,
+        'eos_token_id': 4,
     }
     if args.generate_config is not None:
         generate_config_ = read_json(args.generate_config)
@@ -52,7 +54,7 @@ def main():
     if start_tokens is None:
         context = '1'
     else:
-        context = '1' + start_tokens if start_tokens[0] != '1' else start_tokens
+        context = start_tokens if start_tokens.startswith('1') else f'1{start_tokens}'
 
     tokenizer = create_tokenizer()
     input_ids = torch.tensor(tokenizer.encode(context).ids).view([1, -1]).to(model.device)       
@@ -65,7 +67,7 @@ def main():
         output_ids = model.generate(
             input_ids,
             num_return_sequences=batch_size,
-            **generate_config
+            **generate_config,
         )
         output_ids = output_ids.cpu().numpy().tolist()
         sequences_ = tokenizer.decode_batch(output_ids)
