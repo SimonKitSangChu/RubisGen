@@ -71,6 +71,11 @@ def main():
         )
         output_ids = output_ids.cpu().numpy().tolist()
         sequences_ = tokenizer.decode_batch(output_ids)
+
+        for sequence_ in sequences_:
+            assert sequence_.startswith('1') or not sequence_.endswith('2'), 'sequence does not start with 1 or end with 2'
+            assert len(sequence_) >= generate_config['min_length'], 'sequence does not obey min_length criteria'
+        
         sequences_ = [s.lstrip('1').rstrip('2') for s in sequences_]  # drop BOS and EOS
         sequences_ = [s for s in sequences_ if '1' not in s and '2' not in s]  # BOS and EOS in main sequence
         sequences.extend(sequences_)
