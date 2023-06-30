@@ -61,8 +61,12 @@ def create_dataset(
             return True
 
         def tokenize_function(examples: Dict[str, Any]) -> Dict[str, Any]:
-            sequence = '1' + unspace(examples['sequence']) + '2'
-            return {'input_ids': tokenizer.encode(sequence, **tokenizer_kwargs).ids}
+            sequence = '1' + unspace(examples['sequence']).lstrip('1').rstrip('2') + '2'
+            if issubclass(tokenizer.__class__, Tokenizer):
+                input_ids = tokenizer.encode(sequence, **tokenizer_kwargs).ids
+            else:
+                input_ids = tokenizer(sequence, **tokenizer_kwargs)
+            return {'input_ids': input_ids}
 
         if sequences is None:
             sequences = read_fasta(fasta, format='sequence', return_dict=True)
@@ -137,8 +141,20 @@ class DataCollatorWithPadding:
             input_ids.append(feature['input_ids'] + [self.pad_token_id] * (max_length - len(feature['input_ids'])))
             attention_mask.append([1] * len(feature['input_ids']) + [0] * (max_length - len(feature['input_ids'])))
 
+        if 'labels' in features[0]:
+            labels = []
+            for feature in features:
+                labels_ = feature['labels']
+                if isinstance(labels_, list):
+                    labels_ = labels_ + [self.pad_token_id] * (max_length - len(labels_))
+                else:
+                    labels_ = [labels_]
+                labels.append(labels_)
+        else:
+            labels = input_ids
+
         return {
             'input_ids': torch.tensor(input_ids, dtype=torch.long),
             'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
-            'labels': torch.tensor(input_ids, dtype=torch.long),
+            'labels': torch.tensor(labels, dtype=torch.long),
         }

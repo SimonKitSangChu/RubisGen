@@ -5,16 +5,18 @@ import sys
 
 from datasets import load_from_disk, Dataset
 import torch
+from tokenizers import Tokenizer
+from transformers.models.esm import EsmTokenizer
 from transformers.utils import logging
 
-from rubisgen.util import read_json, write_json, unspace, read_fasta
+from rubisgen.util import write_json, unspace, read_fasta
 from rubisgen.data import train_val_test_split, clear_arrow_cache
 from rubisgen.tokenization_progen import create_tokenizer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_dir', default=None, required=True, help='Dataset directory')
 parser.add_argument('--fasta', default=None, required=True, help='Fasta file')
-parser.add_argument('--generated_fasta', default=None, help='Generated fasta file')
+parser.add_argument('--generated_fasta', default=None, nargs='+', help='Generated fasta file(s)')
 parser.add_argument('--dataset_n_chunks', default=1, type=int, help='Build dataset in chunks')
 parser.add_argument('--num_proc', default=None, type=int, help='num_proc for building dataset')
 parser.add_argument('--test_ratio', default=0.02, type=float, help='Validation/Test ratio to training set')
@@ -44,6 +46,15 @@ def main():
     except FileNotFoundError:
         pass
 
+    if args.generated_fasta is None:
+        logger.info('Since --generated_fasta is None, the dataset will be a single sequence dataset under ProGen2 '
+                    'tokenizer.')
+        is_discriminator = False
+    else:
+        logger.info('Since --generated_fasta is not None, the dataset will be a binary classification dataset under '
+                    'ESM tokenizer.')
+        is_discriminator = True
+
     # 1. create dataset
     logger.info(f'Creating dataset in {dataset_dir}')
 
@@ -54,10 +65,15 @@ def main():
             'sequence': list(sequences.values())
         })
     else:
-        generated_sequences = read_fasta(args.generated_fasta, format='sequence', return_dict=True)
+        generated_ids, generated_sequences = [], []
+        for generated_fasta in args.generated_fasta:
+            sequences_ = read_fasta(generated_fasta, format='sequence', return_dict=True)
+            generated_ids.extend(list(sequences_.keys()))
+            generated_sequences.extend(list(sequences_.values()))
+
         dataset = Dataset.from_dict({
-            'id': list(sequences.keys()) + list(generated_sequences.keys()),
-            'sequence': list(sequences.values()) + list(generated_sequences.values()),
+            'id': list(sequences.keys()) + generated_ids,
+            'sequence': list(sequences.values()) + generated_sequences,
             'labels': [0] * len(sequences) + [1] * len(generated_sequences)
         })
 
@@ -66,7 +82,11 @@ def main():
 
     min_length = args.min_length
     max_length = args.max_length
-    tokenizer = create_tokenizer()
+
+    if is_discriminator:
+        tokenizer = EsmTokenizer.from_pretrained('facebook/esm2_t48_15B_UR50D')
+    else:
+        tokenizer = create_tokenizer()
 
     def filter_function(examples):
         sequence = unspace(examples['sequence'])
@@ -79,9 +99,14 @@ def main():
 
         return True
 
-    def tokenize_function(examples):
-        sequence = '1' + unspace(examples['sequence']) + '2'
-        return {'input_ids': tokenizer.encode(sequence).ids}
+    if issubclass(tokenizer.__class__, Tokenizer):
+        def tokenize_function(examples):
+            sequence = '1' + unspace(examples['sequence']).lstrip('1').strip('2') + '2'
+            return {'input_ids': tokenizer.encode(sequence).ids}
+    else:
+        def tokenize_function(examples):
+            sequence = unspace(examples['sequence'])
+            return {'input_ids': tokenizer.encode(sequence)}
 
     dataset = dataset.filter(filter_function, batched=False)
     dataset = dataset.map(
@@ -91,7 +116,7 @@ def main():
     )
     dataset = train_val_test_split(
         dataset,
-        split=(1 - 2*args.test_ratio, args.test_ratio, args.test_ratio),
+        split=(1 - 2 * args.test_ratio, args.test_ratio, args.test_ratio),
         seed=args.seed
     )
 
@@ -106,3 +131,7 @@ def main():
         'generated_fasta': args.generated_fasta,
     }
     write_json(meta_data, dataset_dir / 'metadata.json')
+
+
+if __name__ == '__main__':
+    main()
