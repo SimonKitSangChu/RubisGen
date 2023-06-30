@@ -1,18 +1,17 @@
 import argparse
 from pathlib import Path
-import os.path as osp
-import sys
 
 from datasets import load_from_disk
 import torch
 from transformers import EarlyStoppingCallback, Seq2SeqTrainingArguments, Seq2SeqTrainer
+from transformers.models.esm import EsmForSequenceClassification, EsmConfig, EsmTokenizer
 from transformers.utils import logging
 
-from rubisgen.util import read_json, write_json
-from rubisgen.data import create_dataset, DataCollatorWithPadding
-from rubisgen.tokenization_progen import create_tokenizer
+from rubisgen.util import write_json
 from rubisgen.configuration_progen import ProGenConfig
+from rubisgen.data import DataCollatorWithPadding
 from rubisgen.modeling_progen import ProGenForCausalLM
+from rubisgen.tokenization_progen import create_tokenizer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--output_dir', default=None, help='Output directory')
@@ -37,6 +36,7 @@ parser.add_argument('--num_proc', default=None, type=int, help='num_proc for bui
 parser.add_argument('--test_ratio', default=0.02, type=float, help='Validation/Test ratio to training set')
 parser.add_argument('--resume_from_checkpoint', default=None, type=str, help='Resume from training checkpoint')
 parser.add_argument('--model_checkpoint', default=None, type=str, help='Finetune from checkpoint')
+parser.add_argument('--is_discriminator', default=False, action='store_true', help='Train discriminator over generator')
 args, unk = parser.parse_known_args()
 
 logging.set_verbosity_info()
@@ -54,7 +54,10 @@ def main():
     write_json(unk, output_dir / 'unk.json')
 
     dataset_dict = load_from_disk(args.dataset_dir)
-    dataset_dict = dataset_dict.remove_columns(['id', 'sequence'])
+    cols_keep = ['input_ids', 'attention_mask', 'labels']
+    dataset_dict = dataset_dict.remove_columns([
+        col for col in dataset_dict['train'].column_names if col not in cols_keep
+    ])
 
     # training config
     if args.debug:
@@ -102,17 +105,28 @@ def main():
     )
 
     # trainer config
-    model_cls = ProGenForCausalLM
+    if args.is_discriminator:
+        model_cls = EsmForSequenceClassification
+        config_cls = EsmConfig
+    else:
+        model_cls = ProGenForCausalLM
+        config_cls = ProGenConfig
 
     if args.model_checkpoint is None:
         logger.warning('model_checkpoint is not specified despite finetuning mode. Load from scratch instead.')
         if args.scratch_model_config:
-            model_config = ProGenConfig.from_json_file(args.scratch_model_config)
+            model_config = config_cls.from_json_file(args.scratch_model_config)
         else:
-            model_config = ProGenConfig()
+            model_config = config_cls()
         model = model_cls(model_config)
     else:
         model = model_cls.from_pretrained(args.model_checkpoint)
+
+    if args.is_discriminator:
+        tokenizer = EsmTokenizer.from_pretrained('facebook/esm2_t48_15B_UR50D')
+    else:
+        tokenizer = create_tokenizer()
+    collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     trainer = Seq2SeqTrainer(
         model=model,
