@@ -33,7 +33,7 @@ def read_fasta(fasta: PathLike, format: str = 'record', return_dict: bool = True
 
     if format == 'record':
         return records
-    elif format == 'sequence':
+    elif format in ('sequence', 'str', 'string'):
         return records2sequences(records)
     else:
         raise ValueError(f'Unknown format: {format}')
