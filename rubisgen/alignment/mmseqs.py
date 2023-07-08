@@ -25,11 +25,12 @@ def create_db(fasta: PathLike, db: PathLike, **kwargs) -> None:
     sp.run(cmd, shell=True, check=True)
 
 
-def search(queryDB: PathLike, targetDB: PathLike, resultDB: PathLike, clean_tmp: bool = True, **kwargs) -> None:
-    cmd = f'mmseqs search {queryDB} {targetDB} {resultDB} .tmp' + kwargs2flags(kwargs)
+def search(queryDB: PathLike, targetDB: PathLike, resultDB: PathLike,
+           tmp_dir: PathLike = '.tmp', clean: bool = True, **kwargs) -> None:
+    cmd = f'mmseqs search {queryDB} {targetDB} {resultDB} {tmp_dir}' + kwargs2flags(kwargs)
     sp.run(cmd, shell=True, check=True)
-    if clean_tmp:
-        rmtree('.tmp')
+    if clean:
+        rmtree(tmp_dir)
 
 
 def alignall(queryDB: PathLike, targetDB: PathLike, resultDB: PathLike = 'alignall', **kwargs) -> None:
@@ -70,9 +71,13 @@ def parse_m8(m8: PathLike, format_columns: Optional[Iterable] = None) -> pd.Data
             'bits', 'qseq', 'tseq'
         ]
 
-    df = pd.read_csv(m8, sep='\t', header=None)
-    df.columns = format_columns
-    return df
+    try:
+        df = pd.read_csv(m8, sep='\t', header=None)
+        df.columns = format_columns
+        return df
+    except pd.errors.EmptyDataError:
+        logger.warning(f'{m8} is empty')
+        return pd.DataFrame()
 
 
 def pairwise_align(
@@ -82,7 +87,7 @@ def pairwise_align(
         target_db: str = 'targetDB',
         result_db: str = 'resultDB',
         result: str = 'result',
-        all_to_all: bool = True,
+        all_to_all: bool = False,
         drop_self: bool = False,
 ) -> pd.DataFrame:
     write_fasta(query_db, query_records)
