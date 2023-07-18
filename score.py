@@ -62,7 +62,7 @@ def main():
             input_ids = input_ids.unsqueeze(0).to(model.device)
 
             with torch.no_grad():
-                outputs = model(input_ids=input_ids[:, :-1], labels=input_ids[:, 1:])
+                outputs = model(input_ids, labels=input_ids)
             return outputs.loss.item()
 
         df['loss'] = df.progress_apply(_score, axis=1)
