@@ -2,6 +2,7 @@ import argparse
 import pandas as pd
 from pathlib import Path
 from io import StringIO
+import os
 
 from Bio.Blast import NCBIXML
 from Bio.Blast.Applications import NcbimakeblastdbCommandline, NcbiblastpCommandline
@@ -13,7 +14,7 @@ from tqdm import tqdm
 
 from rubisgen.modeling_progen import ProGenForCausalLM
 from rubisgen.tokenization_progen import create_tokenizer
-from rubisgen.util import read_fasta, write_fasta, sequence2record
+from rubisgen.util import read_fasta, write_fasta, sequence2record, string2hash
 from rubisgen.alignment.mmseqs import create_db, search, convertalis, parse_m8
 
 parser = argparse.ArgumentParser()
@@ -115,8 +116,10 @@ def main():
         # Blast approach
         blast_dir = Path('.blast')
         blast_dir.mkdir(exist_ok=True, parents=True)
+        os.environ['BLASTDB'] = str(blast_dir.resolve())
 
         target_db_path = blast_dir / 'target_db'
+        #target_db_path = Path('target_db')
         if not target_db_path.with_suffix('.psq').is_file():
             blast_cmd = NcbimakeblastdbCommandline(
                 dbtype='prot',
@@ -132,7 +135,8 @@ def main():
             record = sequence2record(row['sequence'], row.get('id', None))
             write_fasta(query_fasta, [record])
 
-            blast_cmd = NcbiblastpCommandline(query=query_fasta, db=target_db_path, outfmt=5, num_threads=4)
+            #outfile = blast_dir / f"{string2hash(row['sequence'])}.out"
+            blast_cmd = NcbiblastpCommandline(query=query_fasta, db=target_db_path.name, outfmt=5, num_threads=4) #, out=outfile)
             output = blast_cmd()[0]
 
             highest_percent_identity = 0
@@ -144,18 +148,22 @@ def main():
                 'score': None,
                 'evalue': None,
             }
-
             blast_records = NCBIXML.read(StringIO(output))
+            #with outfile.open('r') as f:
+            #    blast_records = NCBIXML.read(f)
+
             for alignment in blast_records.alignments:
                 for hsp in alignment.hsps:
                     alignment_length = hsp.align_length
                     identities = hsp.identities
                     percent_identity = (identities / alignment_length) * 100
 
-                    if percent_identity > best_hit['pident']:
+                    if percent_identity > best_hit['pident'] and hsp.expect < 1e-6:
                         best_hit['pident'] = percent_identity
                         best_hit['alignment_title'] = alignment.title
-                        best_hit['tseq'] = target_sequences[alignment.title.split()[-1]]
+                        best_hit['tseq'] = target_sequences[
+                            alignment.title.replace('<unknown description>', '').split()[-1]
+                        ]
                         # best_hit['tseq_gapped'] = str(hsp.sbjct)
                         best_hit['score'] = hsp.score
                         best_hit['evalue'] = hsp.expect

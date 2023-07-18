@@ -117,7 +117,7 @@ def unspace(string: str) -> str:
     return ''.join(string.split())
 
 
-def string2hash(string: str, method: Callable = hashlib.md5) -> str:
+def string2hash(string: str, method: Callable = hashlib.sha256) -> str:
     hashname = string.encode()
     hashname = method(hashname)
     return hashname.hexdigest()
