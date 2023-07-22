@@ -53,7 +53,12 @@ def main():
     df = pd.concat(df)
 
     # 1. generator model
-    if args.generator_name_or_path is not None and ('loss' not in df.columns or df['loss'].isna().any()):
+    if 'loss' in df.columns:
+        sr_ = df['loss'].isna()
+    else:
+        sr_ = pd.Series([True] * len(df))
+
+    if args.generator_name_or_path is not None and sr_.any():
         model = ProGenForCausalLM.from_pretrained(args.generator_name_or_path)
         tokenizer = create_tokenizer()
 
@@ -67,10 +72,15 @@ def main():
                 outputs = model(input_ids, labels=input_ids)
             return outputs.loss.item()
 
-        df.loc[df['loss'].isna(), 'loss'] = df[df['loss'].isna()].progress_apply(_score, axis=1)
+        df.loc[sr_, 'loss'] = df[sr_].progress_apply(_score, axis=1)
 
     # 2. discriminator model
-    if args.discriminator_name_or_path is not None and ('prob_disc' not in df.columns or df['prob_disc'].isna().any()):
+    if 'prob_disc' in df.columns:
+        sr_ = df['prob_disc'].isna()
+    else:
+        sr_ = pd.Series([True] * len(df))
+
+    if args.discriminator_name_or_path is not None and sr_.any():
         model = EsmForSequenceClassification.from_pretrained(args.discriminator_name_or_path)
         tokenizer = EsmTokenizer.from_pretrained('facebook/esm2_t48_15B_UR50D')
 
@@ -81,10 +91,23 @@ def main():
             probs = torch.softmax(outputs.logits[0], dim=0)
             return probs[1].item()
 
-        df.loc[df['prob_disc'].isna(), 'prob_dis'] = df[df['prob_disc'].isna()].progress_apply(_score, axis=1)
+        df.loc[sr_, 'prob_dis'] = df[sr_].progress_apply(_score, axis=1)
 
     # 3. sequence alignment
-    if args.target_fasta is not None and ('pident' not in df.columns or df['pident'].isna().any()):
+    if 'pident' in df.columns:
+        sr_ = df['pident'].isna()
+    else:
+        sr_ = pd.Series([True] * len(df))
+
+    # restrict to loss and prob_disc criteria
+    if args.max_loss is not None:
+        sr_ = pd.concat([sr_, df['loss'] < args.max_loss], axis=1)
+        sr_ = sr_.all(axis=1)
+    if args.max_prob_disc is not None:
+        sr_ = pd.concat([sr_, df['prob_disc'] < args.max_loss], axis=1)
+        sr_ = sr_.all(axis=1)
+
+    if args.target_fasta is not None and sr_.any():
         # Mmseqs2 approach
         # mmseqs_dir = Path('.mmseqs')
         # mmseqs_dir.mkdir(exist_ok=True, parents=True)
@@ -172,25 +195,8 @@ def main():
 
             return pd.Series(best_hit)
 
-        # restrict to NaN entry
-        if 'pident' in df.columns:
-            sr_ = df['pident'].isna()
-        else:
-            sr_ = pd.Series([True] * len(df))
-
-        # restrict to loss and prob_disc criteria
-        if args.max_loss is not None:
-            sr_ = pd.concat([sr_, df['loss'] < args.max_loss], axis=1)
-            sr_ = sr_.all(axis=1)
-        if args.max_prob_disc is not None:
-            sr_ = pd.concat([sr_, df['prob_disc'] < args.max_loss], axis=1)
-            sr_ = sr_.all(axis=1)
-
         # align entries
-        if sr_.any():
-            df.loc[sr_, ['pident', 'alignment_title', 'tseq', 'score', 'evalue']] = df[sr_].progress_apply(_score, axis=1)
-        else:
-            logger.info('No entry requires alignment.')
+        df.loc[sr_, ['pident', 'alignment_title', 'tseq', 'score', 'evalue']] = df[sr_].progress_apply(_score, axis=1)
 
     df.to_csv(args.output_csv, index=False)
 
