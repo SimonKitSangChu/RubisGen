@@ -105,44 +105,11 @@ def main():
 
     # restrict to loss and prob_disc criteria
     if args.max_loss is not None:
-        sr_ = pd.concat([sr_, df['loss'] <= args.max_loss], axis=1)
-        sr_ = sr_.all(axis=1)
+        sr_ = sr_ & (df['loss'] <= args.max_loss)
     if args.max_prob_disc is not None:
-        sr_ = pd.concat([sr_, df['prob_disc'] <= args.max_prob_disc], axis=1)
-        sr_ = sr_.all(axis=1)
+        sr_ = sr_ & (df['prob_disc'] <= args.max_prob_disc)
 
     if args.target_fasta is not None and sr_.any():
-        # Mmseqs2 approach
-        # mmseqs_dir = Path('.mmseqs')
-        # mmseqs_dir.mkdir(exist_ok=True, parents=True)
-        #
-        # target_db_path = mmseqs_dir / 'target_db'
-        # if not target_db_path.exists():
-        #     create_db(args.target_fasta, target_db_path)
-        #
-        # def _score(row):
-        #     tmp_dir = mmseqs_dir / 'tmp'
-        #     tmp_dir.mkdir()
-        #
-        #     query_fasta = tmp_dir / 'query.fasta'
-        #     query_db_path = tmp_dir / 'query_db'
-        #
-        #     query_records = [sequence2record(row['sequence'], row.get('id', None))]
-        #     write_fasta(query_fasta, query_records)
-        #     create_db(query_fasta, query_db_path)
-        #     search(query_db_path, target_db_path, tmp_dir / 'searchDB', tmp_dir=tmp_dir, clean=False)
-        #     convertalis(query_db_path, target_db_path, tmp_dir / 'searchDB', tmp_dir / 'search')
-        #
-        #     df_ = parse_m8(tmp_dir / 'search.m8')
-        #     rmtree(tmp_dir)
-        #
-        #     if df_.empty:
-        #         return 0
-        #     return df_['pident'].max()
-        #
-        # df['pident'] = df.progress_apply(_score, axis=1)
-
-        # Blast approach
         blast_dir.mkdir(exist_ok=True, parents=True)
 
         target_db_path = blast_dir / 'target_db'
