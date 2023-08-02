@@ -142,3 +142,10 @@ def train_val_test_split(
     dataset_dict['eval'] = split_dict['train']
     dataset_dict['test'] = split_dict['test']
     return DatasetDict(**dataset_dict)
+
+
+def has_repeats(sequence: str, max_repeats: int = 10):
+    for i in range(len(sequence) - max_repeats + 1):
+        if all(sequence[i + j] == sequence[i] for j in range(1, max_repeats)):
+            return True
+    return False

@@ -8,7 +8,7 @@ from Bio.SeqRecord import SeqRecord
 import pandas as pd
 from transformers.utils import logging
 
-from rubisgen.util import write_fasta
+from rubisgen.util import write_fasta, sequences2records, read_fasta
 
 logger = logging.get_logger(__name__)
 logging.set_verbosity_info()
@@ -111,3 +111,27 @@ def pairwise_align(
         df = df[df['query'] != df['target']]
 
     return df
+
+
+def easy_cluster(
+        records: Iterable[SeqRecord],
+        output_dir: PathLike = 'mmseqs_cluster',
+        clean_up: bool = True,
+        **kwargs,
+) -> Iterable[SeqRecord]:
+    output_dir = Path(output_dir)
+    records = sequences2records(records)
+    write_fasta('mmseqs_cluster.fasta', records)
+
+    kwargs['min-seq-id'] = kwargs.pop('min-seq-id', 0.8)
+    cmd = f'mmseqs easy-cluster {records} {kwargs2flags(kwargs)} {output_dir}'
+    try:
+        sp.run(cmd, shell=True, check=True)
+    except sp.CalledProcessError as e:
+        raise RuntimeError(f'Error in mmseqs easy-cluster: {e.stderr.decode()}')
+
+    records = read_fasta(output_dir / 'mmseqs_cluster_rep_seq.fasta')
+    if clean_up:
+        rmtree(output_dir)
+
+    return records

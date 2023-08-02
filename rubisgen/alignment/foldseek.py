@@ -3,11 +3,8 @@ from pathlib import Path
 import subprocess as sp
 from typing import Any, Dict, Iterable, Optional
 
-from Bio.SeqRecord import SeqRecord
 import pandas as pd
 from transformers.utils import logging
-
-from rubisgen.util import write_fasta
 
 logger = logging.get_logger(__name__)
 logging.set_verbosity_info()
@@ -83,8 +80,8 @@ def pairwise_align(
         target_db: str = 'targetDB',
         result_db: str = 'resultDB',
         result: str = 'result',
-        all_to_all: bool = True,
-        drop_self: bool = False,
+        all_to_all: bool = False,
+        drop_self: bool = True,
 ) -> pd.DataFrame:
     create_db(query_dir, query_db)
 

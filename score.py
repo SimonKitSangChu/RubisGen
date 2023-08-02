@@ -1,11 +1,8 @@
 import argparse
 import pandas as pd
 from pathlib import Path
-from io import StringIO
 import os
 
-from Bio.Blast import NCBIXML
-from Bio.Blast.Applications import NcbimakeblastdbCommandline, NcbiblastpCommandline
 from datasets import load_from_disk
 import torch
 from transformers.models.esm import EsmForSequenceClassification, EsmTokenizer
@@ -15,7 +12,11 @@ from tqdm import tqdm
 from rubisgen.modeling_progen import ProGenForCausalLM
 from rubisgen.tokenization_progen import create_tokenizer
 from rubisgen.util import read_fasta, write_fasta, sequence2record, string2hash
+from rubisgen.alignment.blast import create_blastdb, blastp
 from rubisgen.alignment.mmseqs import create_db, search, convertalis, parse_m8
+
+blast_dir = Path('.blast')
+os.environ['BLASTDB'] = str(blast_dir.resolve())
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_files', required=True, nargs='+', help='Input files')
@@ -142,59 +143,28 @@ def main():
         # df['pident'] = df.progress_apply(_score, axis=1)
 
         # Blast approach
-        blast_dir = Path('.blast')
         blast_dir.mkdir(exist_ok=True, parents=True)
-        os.environ['BLASTDB'] = str(blast_dir.resolve())
 
         target_db_path = blast_dir / 'target_db'
-        #target_db_path = Path('target_db')
-        if not target_db_path.with_suffix('.psq').is_file():
-            blast_cmd = NcbimakeblastdbCommandline(
-                dbtype='prot',
-                input_file=args.target_fasta,
-                out=target_db_path,
-            )
-            blast_cmd()
-
+        create_blastdb(args.target_fasta, target_db_path)
         target_sequences = read_fasta(args.target_fasta, format='str')
 
         def _score(row):
-            query_fasta = blast_dir / 'query.fasta'
             record = sequence2record(row['sequence'], str(row.get('id', None)))
-            write_fasta(query_fasta, [record])
+            best_hit = blastp(
+                records=[record],
+                db_path=target_db_path,
+                blastp_dir=blast_dir,
+                num_threads=args.num_threads,
+            )
 
-            #outfile = blast_dir / f"{string2hash(row['sequence'])}.out"
-            blast_cmd = NcbiblastpCommandline(query=query_fasta, db=target_db_path.name, outfmt=5, num_threads=args.blast_num_threads) #, out=outfile)
-            output = blast_cmd()[0]
-
-            highest_percent_identity = 0
-            best_hit = {
-                'pident': 0,
-                'alignment_title': None,
-                'tseq': None,
-                # 'tseq_gapped': None,
-                'score': None,
-                'evalue': None,
-            }
-            blast_records = NCBIXML.read(StringIO(output))
-            #with outfile.open('r') as f:
-            #    blast_records = NCBIXML.read(f)
-
-            for alignment in blast_records.alignments:
-                for hsp in alignment.hsps:
-                    alignment_length = hsp.align_length
-                    identities = hsp.identities
-                    percent_identity = (identities / alignment_length) * 100
-
-                    if percent_identity > best_hit['pident'] and hsp.expect < 1e-6:
-                        best_hit['pident'] = percent_identity
-                        best_hit['alignment_title'] = alignment.title
-                        best_hit['tseq'] = target_sequences[
-                            alignment.title.replace('<unknown description>', '').split()[-1]
-                        ]
-                        # best_hit['tseq_gapped'] = str(hsp.sbjct)
-                        best_hit['score'] = hsp.score
-                        best_hit['evalue'] = hsp.expect
+            alignment_title = best_hit['alignment_title']
+            if alignment_title is None:
+                best_hit['tseq'] = None
+            else:
+                best_hit['tseq'] = target_sequences[
+                    alignment_title.replace('<unknown description>', '').split()[-1]
+                ]
 
             return pd.Series(best_hit)
 
