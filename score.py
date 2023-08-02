@@ -25,9 +25,10 @@ parser.add_argument('--discriminator_name_or_path', type=str, help='Discriminato
 parser.add_argument('--target_fasta', default=None, type=str, help='Reference target fasta for mmseqs2')
 parser.add_argument('--max_loss', default=None, type=float, help='Maximum loss for alignment')
 parser.add_argument('--max_prob_disc', default=None, type=float, help='Maximum prob_disc for alignment')
+parser.add_argument('--blast_num_threads', default=4, type=int, help='Number of threads in blastp')
+parser.add_argument('--overwrite', action='store_true', help='Overwrite existing columns')
 args = parser.parse_args()
 
-tqdm.pandas()
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
@@ -53,7 +54,7 @@ def main():
     df = pd.concat(df)
 
     # 1. generator model
-    if 'loss' in df.columns:
+    if 'loss' in df.columns and not args.overwrite:
         sr_ = df['loss'].isna()
     else:
         sr_ = pd.Series([True] * len(df))
@@ -72,10 +73,11 @@ def main():
                 outputs = model(input_ids, labels=input_ids)
             return outputs.loss.item()
 
+        tqdm.pandas(desc=f'{args.input_files}: loss')
         df.loc[sr_, 'loss'] = df[sr_].progress_apply(_score, axis=1)
 
     # 2. discriminator model
-    if 'prob_disc' in df.columns:
+    if 'prob_disc' in df.columns and not args.overwrite:
         sr_ = df['prob_disc'].isna()
     else:
         sr_ = pd.Series([True] * len(df))
@@ -91,20 +93,21 @@ def main():
             probs = torch.softmax(outputs.logits[0], dim=0)
             return probs[1].item()
 
-        df.loc[sr_, 'prob_dis'] = df[sr_].progress_apply(_score, axis=1)
+        tqdm.pandas(desc=f'{args.input_files}: prob_disc')
+        df.loc[sr_, 'prob_disc'] = df[sr_].progress_apply(_score, axis=1)
 
     # 3. sequence alignment
-    if 'pident' in df.columns:
+    if 'pident' in df.columns and not args.overwrite:
         sr_ = df['pident'].isna()
     else:
         sr_ = pd.Series([True] * len(df))
 
     # restrict to loss and prob_disc criteria
     if args.max_loss is not None:
-        sr_ = pd.concat([sr_, df['loss'] < args.max_loss], axis=1)
+        sr_ = pd.concat([sr_, df['loss'] <= args.max_loss], axis=1)
         sr_ = sr_.all(axis=1)
     if args.max_prob_disc is not None:
-        sr_ = pd.concat([sr_, df['prob_disc'] < args.max_loss], axis=1)
+        sr_ = pd.concat([sr_, df['prob_disc'] <= args.max_prob_disc], axis=1)
         sr_ = sr_.all(axis=1)
 
     if args.target_fasta is not None and sr_.any():
@@ -161,7 +164,7 @@ def main():
             write_fasta(query_fasta, [record])
 
             #outfile = blast_dir / f"{string2hash(row['sequence'])}.out"
-            blast_cmd = NcbiblastpCommandline(query=query_fasta, db=target_db_path.name, outfmt=5, num_threads=4) #, out=outfile)
+            blast_cmd = NcbiblastpCommandline(query=query_fasta, db=target_db_path.name, outfmt=5, num_threads=args.blast_num_threads) #, out=outfile)
             output = blast_cmd()[0]
 
             highest_percent_identity = 0
@@ -196,6 +199,7 @@ def main():
             return pd.Series(best_hit)
 
         # align entries
+        tqdm.pandas(desc=f'{args.input_files}: blastp')
         df.loc[sr_, ['pident', 'alignment_title', 'tseq', 'score', 'evalue']] = df[sr_].progress_apply(_score, axis=1)
 
     df.to_csv(args.output_csv, index=False)
