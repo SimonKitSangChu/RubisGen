@@ -120,17 +120,19 @@ def easy_cluster(
         **kwargs,
 ) -> Iterable[SeqRecord]:
     output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
     records = sequences2records(records)
-    write_fasta('mmseqs_cluster.fasta', records)
+    write_fasta(output_dir / 'mmseqs_cluster.fasta', records)
 
     kwargs['min-seq-id'] = kwargs.pop('min-seq-id', 0.8)
-    cmd = f'mmseqs easy-cluster {records} {kwargs2flags(kwargs)} {output_dir}'
+    cmd = f'mmseqs easy-cluster {kwargs2flags(kwargs)} {output_dir}/mmseqs_cluster.fasta {output_dir}/clustered {output_dir}/tmp'
     try:
         sp.run(cmd, shell=True, check=True)
     except sp.CalledProcessError as e:
-        raise RuntimeError(f'Error in mmseqs easy-cluster: {e.stderr.decode()}')
+        raise RuntimeError(f'Error in mmseqs easy-cluster: {e}')
 
-    records = read_fasta(output_dir / 'mmseqs_cluster_rep_seq.fasta')
+    records = read_fasta(output_dir / 'clustered_rep_seq.fasta')
     if clean_up:
         rmtree(output_dir)
 

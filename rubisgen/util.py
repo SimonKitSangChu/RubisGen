@@ -96,19 +96,6 @@ def sequences2records(sequences: Iterable[str]) -> Iterable[SeqIO.SeqRecord]:
         return [SeqIO.SeqRecord(Seq(sequence), id=str(id_)) for id_, sequence in enumerate(sequences)]
 
 
-def nested_sequences2records(generated_sequences: Dict[str, List[str]]) -> List[SeqIO.SeqRecord]:
-    records = []
-    for generate_name, generate_results in generated_sequences.items():
-        for i, result in enumerate(generate_results):
-            sequence = result['generated_merged_text']
-            sequence = unspace(sequence)
-            records.append(
-                SeqIO.SeqRecord(Seq(sequence), id=f'{generate_name}_{i}')
-            )
-
-    return records
-
-
 def spaceout(string: str) -> str:
     return ' '.join(string)
 

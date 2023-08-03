@@ -1,7 +1,7 @@
 from os import PathLike
 from pathlib import Path
 from io import StringIO
-from typing import Any, Dict, Iterable, Union
+from typing import Any, Dict
 
 from Bio.Blast import NCBIXML
 from Bio.Blast.Applications import NcbimakeblastdbCommandline, NcbiblastpCommandline
@@ -24,6 +24,7 @@ def blastp(
         records: Dict[str, SeqRecord],
         db_path: PathLike,
         blastp_dir: PathLike = '.blastp',
+        max_e_value: float = 1e-6,
         **kwargs,
 ) -> Dict[str, Any]:
     blastp_dir = Path(blastp_dir)
@@ -57,7 +58,7 @@ def blastp(
             identities = hsp.identities
             percent_identity = (identities / alignment_length) * 100
 
-            if percent_identity > best_hit['pident'] and hsp.expect < 1e-6:
+            if percent_identity > best_hit['pident'] and hsp.expect < max_e_value:
                 best_hit['pident'] = percent_identity
                 best_hit['alignment_title'] = alignment.title
                 # best_hit['tseq_gapped'] = str(hsp.sbjct)
