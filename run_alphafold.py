@@ -24,6 +24,7 @@ parser.add_argument('--input_dirs', required=True, nargs='+',
 parser.add_argument('--output_dir', default='alphafold', help='Output directory')
 parser.add_argument('--max_loss', type=float, default=None, help='Maximum loss')
 parser.add_argument('--max_prob_disc', type=float, default=None, help='Maximum discriminator probability')
+parser.add_argument('--n_smallest', type=int, default=20, help='N smallest by loss or prob_disc')
 parser.add_argument('--max_repeats', type=int, default=10, help='Maximum number of repeats')
 parser.add_argument('--target_db_path', type=str, default=None, help='Path to blast database')
 parser.add_argument('--target_fasta', type=str, default=None, help='Path to target fasta')
@@ -34,7 +35,8 @@ logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
 blast_dir = Path('.blast')
-os.environ['BLASTDB'] = str(blast_dir)
+db_dir = Path(args.target_db_path).parent
+os.environ['BLASTDB'] = str(db_dir)
 
 
 def main():
@@ -46,6 +48,7 @@ def main():
     output_csv = output_dir / 'output.csv'
     
     if output_fasta.exists() and output_csv.exists():
+        logger.info('Load in csv and fasta from previous run.')
         df = pd.read_csv(output_csv)
         records_af = read_fasta(output_fasta)
     else:
@@ -61,6 +64,7 @@ def main():
 
             for csv in csv_list:
                 df_af = pd.read_csv(csv)
+                df_af['csv'] = csv.name
                 assert 'sequence' in df_af.columns, f'No column sequence in {csv}'
                 df.append(df_af)
 
@@ -83,8 +87,8 @@ def main():
             df_af = df_af[sr_]
 
             # filter by top_n smallest
-            df1_ = df_af.nsmallest(20, 'prob_disc')
-            df2_ = df_af.nsmallest(20, 'loss')
+            df1_ = df_af.nsmallest(args.n_smallest, 'prob_disc')
+            df2_ = df_af.nsmallest(args.n_smallest, 'loss')
 
             sequences = sequences | set(df1_['sequence']) | set(df2_['sequence'])
 
@@ -106,48 +110,63 @@ def main():
             ~df['sequence'].duplicated()  # keep first duplicate occurrence
 
         # 3. (re)align to full database
-        blast_dir.mkdir(exist_ok=True, parents=True)
-        target_db_path = Path(args.target_db_path)
-        db_name = target_db_path.name
+        if args.target_db_path is not None:
+            blast_dir.mkdir(exist_ok=True, parents=True)
+            target_db_path = Path(args.target_db_path)
+            db_name = target_db_path.name
 
-        if args.target_fasta is None:
-            target_fasta = target_db_path.with_stem(f'{db_name}.fasta')
+            if args.target_fasta is not None:
+                logger.info(f'Loading in target fasta {args.target_fasta}.')
+                target_sequences = read_fasta(args.target_fasta, format='str')
+
+            def _score(row):
+                record = sequence2record(row['sequence'], str(row.get('id', None)))
+                best_hit = blastp(
+                    records=[record],
+                    db_path=args.target_db_path,
+                    blastp_dir=blast_dir,
+                    num_threads=args.num_threads,
+                )
+
+                alignment_hit_def = best_hit['alignment_hit_def']
+                if alignment_hit_def is None or args.target_fasta is None:
+                    best_hit['tseq'] = None
+                else:
+                    if not isinstance(alignment_hit_def, str):  # quickfix: type tuple
+                        alignment_hit_def = alignment_hit_def[0]
+                    best_hit['tseq'] = target_sequences[alignment_hit_def.split()[0]]
+
+                best_hit = {f'{db_name}_{key}': value for key, value in best_hit.items()}
+                return pd.Series(best_hit)
+
+            if f'{db_name}_pident' in df.columns:  # skip calculated entries
+                sr = sr & df[f'{db_name}_pident'].isna()
+
+            logger.info(f'Begin alignment to {db_name}')
+            tqdm.pandas(desc=f'Aligning to {db_name}')
+            df.loc[sr, [
+                f'{db_name}_pident',
+                f'{db_name}_alignment_title',
+                f'{db_name}_alignment_hit_def',
+                f'{db_name}_tseq',
+                f'{db_name}_score',
+                f'{db_name}_evalue',
+            ]] = df[sr].progress_apply(_score, axis=1)
+
         else:
-            target_fasta = Path(args.target_fasta)
-        target_sequences = read_fasta(target_fasta, format='str')
+            logger.warning('No blast db given. Skip alignment.')
 
-        def _score(row):
-            record = sequence2record(row['sequence'], str(row.get('id', None)))
-            best_hit = blastp(
-                records=[record],
-                db_path=args.target_db_path,
-                blastp_dir=blast_dir,
-                num_threads=args.num_threads,
-            )
+            db_name = 'none'
+            for col in ('pident', 'alignment_title', 'alignment_hit_def', 'tseq', 'score', 'evalue'):
+                if col in df.columns:
+                    df.loc[sr, f'{db_name}_{col}'] = df.loc[sr, col]
 
-            alignment_title = best_hit['alignment_title']
-            if alignment_title is None:
-                best_hit['tseq'] = None
-            else:
-                best_hit['tseq'] = target_sequences[
-                    alignment_title.replace('<unknown description>', '').split()[-1]
-                ]
-
-            best_hit = {f'{db_name}_{key}': value for key, value in best_hit.items()}
-            return pd.Series(best_hit)
-
-        tqdm.pandas(desc=f'Aligning to {db_name}')
-        df.loc[sr, [
-            f'{db_name}_pident',
-            f'{db_name}_alignment_title',
-            f'{db_name}_tseq',
-            f'{db_name}_score',
-            f'{db_name}_evalue',
-        ]] = df[sr].progress_apply(_score, axis=1)
         df.to_csv(output_csv, index=False)
 
         # 4. prepare for alphafold run
-        df_af = df.dropna(subset=[f'{db_name}_tseq']).copy()
+        logger.info('Prepare AlphaFold inputs.')
+
+        df_af = df.dropna(subset=[f'{db_name}_pident']).copy()
         df_af[f'{db_name}_pident_bins'] = pd.cut(
             df_af[f'{db_name}_pident'],
             bins=pident_bins,
@@ -155,7 +174,7 @@ def main():
             right=False,
         )
 
-        df_af['name'] = df_af[f'{db_name}_pident_bins'].astype(str) + '_' + df_af['id'].astype(str)
+        df_af['name'] = df_af[f'{db_name}_pident_bins'].astype(str) + '_' + df_af['csv'].str[:-4] + '_' + df_af['id'].astype(str)
         sequences_af = df_af.set_index('name')['sequence'].to_dict()
         records_af = sequences2records(sequences_af)
         write_fasta(output_fasta, records_af.values())

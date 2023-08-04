@@ -45,6 +45,7 @@ def blastp(
     best_hit = {
         'pident': 0,
         'alignment_title': None,
+        'alignment_hit_def': None,
         'tseq': None,
         # 'tseq_gapped': None,
         'score': None,
@@ -61,10 +62,10 @@ def blastp(
             if percent_identity > best_hit['pident'] and hsp.expect < max_e_value:
                 best_hit['pident'] = percent_identity
                 best_hit['alignment_title'] = alignment.title
+                best_hit['alignment_hit_def'] = alignment.hit_def.replace('<unknown description>', '').strip()
                 # best_hit['tseq_gapped'] = str(hsp.sbjct)
                 best_hit['score'] = hsp.score
                 best_hit['evalue'] = hsp.expect
 
     return best_hit
 
-    # target_sequences = read_fasta(args.target_fasta, format='str')  # not working for UniRef90
