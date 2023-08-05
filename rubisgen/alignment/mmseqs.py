@@ -128,7 +128,7 @@ def easy_cluster(
     kwargs['min-seq-id'] = kwargs.pop('min-seq-id', 0.8)
     cmd = f'mmseqs easy-cluster {kwargs2flags(kwargs)} {output_dir}/mmseqs_cluster.fasta {output_dir}/clustered {output_dir}/tmp'
     try:
-        sp.run(cmd, shell=True, check=True)
+        sp.run(cmd, shell=True, check=True, stdout=sp.PIPE, stderr=sp.PIPE)
     except sp.CalledProcessError as e:
         raise RuntimeError(f'Error in mmseqs easy-cluster: {e}')
 

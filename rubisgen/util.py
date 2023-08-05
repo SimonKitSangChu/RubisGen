@@ -5,6 +5,7 @@ import pickle
 import json
 from typing import *
 
+from Bio import PDB
 from Bio import SeqIO
 from Bio.Seq import Seq
 from datasets import Dataset, DatasetDict
@@ -136,3 +137,19 @@ def has_repeats(sequence: str, max_repeats: int = 10):
         if all(sequence[i + j] == sequence[i] for j in range(1, max_repeats)):
             return True
     return False
+
+
+def extract_bfactors(pdb_filename: PathLike, quiet: bool = True) -> List[float]:
+    parser = PDB.PDBParser(QUIET=quiet)
+    structure = parser.get_structure("structure", pdb_filename)
+
+    b_factors = []
+
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                if "CA" in residue:
+                    ca_atom = residue["CA"]
+                    b_factors.append(ca_atom.get_bfactor())
+
+    return b_factors

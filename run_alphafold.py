@@ -2,7 +2,9 @@ import argparse
 import pandas as pd
 from pathlib import Path
 import os
+from shutil import rmtree, copyfile
 
+import numpy as np
 from transformers.utils import logging
 from tqdm import tqdm
 
@@ -14,9 +16,11 @@ from rubisgen.util import (
     sequences2records,
     records2sequences,
     has_repeats,
+    extract_bfactors,
 )
 from rubisgen.alignment.mmseqs import easy_cluster
 from rubisgen.alignment.blast import blastp
+from rubisgen.alignment.foldseek import easy_search
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_dirs', required=True, nargs='+',
@@ -29,18 +33,27 @@ parser.add_argument('--max_repeats', type=int, default=10, help='Maximum number 
 parser.add_argument('--target_db_path', type=str, default=None, help='Path to blast database')
 parser.add_argument('--target_fasta', type=str, default=None, help='Path to target fasta')
 parser.add_argument('--num_threads', type=int, default=1, help='Number of threads')
+parser.add_argument('--af_output_dir', default=None, help='Output directory from alphafold')
+parser.add_argument('--db_name', default=None, help='Name of blast database')
+parser.add_argument('--foldseek_db_path', default=None, help='Path to foldseek database')
 args = parser.parse_args()
 
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
-blast_dir = Path('.blast')
-db_dir = Path(args.target_db_path).parent
-os.environ['BLASTDB'] = str(db_dir)
-
 
 def main():
-    # 0. prepare output directory
+    # 0. setup
+    blast_dir = Path('.blast')
+    if args.target_db_path is None:
+        if args.db_name is None:
+            raise ValueError('Either --target_db_path or --db_name must be specified.')
+        db_name = args.db_name
+    else:
+        target_db_path = Path(args.target_db_path)
+        db_name = target_db_path.name
+        os.environ['BLASTDB'] = str(target_db_path.parent)
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     
@@ -50,7 +63,6 @@ def main():
     if output_fasta.exists() and output_csv.exists():
         logger.info('Load in csv and fasta from previous run.')
         df = pd.read_csv(output_csv)
-        records_af = read_fasta(output_fasta)
     else:
         # 1. load input csv(s)
         df = []
@@ -112,8 +124,6 @@ def main():
         # 3. (re)align to full database
         if args.target_db_path is not None:
             blast_dir.mkdir(exist_ok=True, parents=True)
-            target_db_path = Path(args.target_db_path)
-            db_name = target_db_path.name
 
             if args.target_fasta is not None:
                 logger.info(f'Loading in target fasta {args.target_fasta}.')
@@ -161,20 +171,25 @@ def main():
                 if col in df.columns:
                     df.loc[sr, f'{db_name}_{col}'] = df.loc[sr, col]
 
-        df.to_csv(output_csv, index=False)
-
-        # 4. prepare for alphafold run
-        logger.info('Prepare AlphaFold inputs.')
-
-        df_af = df.dropna(subset=[f'{db_name}_pident']).copy()
-        df_af[f'{db_name}_pident_bins'] = pd.cut(
-            df_af[f'{db_name}_pident'],
+        sr_ = df[f'{db_name}_pident'].isna()
+        df.loc[sr_, f'{db_name}_pident_bins'] = pd.cut(
+            df.loc[sr_, f'{db_name}_pident'],
             bins=pident_bins,
             labels=pident_labels,
             right=False,
         )
 
-        df_af['name'] = df_af[f'{db_name}_pident_bins'].astype(str) + '_' + df_af['csv'].str[:-4] + '_' + df_af['id'].astype(str)
+        def _name(row):
+            if row[f'{db_name}_pident_bins'] is None:
+                return None
+            return f'{row[f"{db_name}_pident_bins"]}_{row["csv"][:-4]}_{row["id"]}'
+
+        df['name'] = df.apply(_name, axis=1)
+        df.to_csv(output_csv, index=False)
+
+        # 4. prepare for alphafold run
+        logger.info('Prepare AlphaFold inputs.')
+
         sequences_af = df_af.set_index('name')['sequence'].to_dict()
         records_af = sequences2records(sequences_af)
         write_fasta(output_fasta, records_af.values())
@@ -187,6 +202,91 @@ def main():
             dest_dir=fasta_dir,
             n_mer=2,
         )
+
+    if 'plddt' in df.columns and 'pident_fs' in df.columns:
+        # no need to re-calculate
+        logger.info(f'plddt and pident_fs already calculated. Skip.')
+        return
+
+    # for backward compatibility
+    if 'name' not in df.columns:
+        sr_ = ~df[f'{db_name}_pident'].isna()
+        pident_bins = [0, 30, 40, 50, 60, 70, 100]
+        pident_labels = ['0-30', '30-40', '40-50', '50-60', '60-70', '70-100']
+
+        df.loc[sr_, f'{db_name}_pident_bins'] = pd.cut(
+            df.loc[sr_, f'{db_name}_pident'],
+            bins=pident_bins,
+            labels=pident_labels,
+            right=False,
+        )
+
+        def _name(row):
+            row = row.to_dict()
+            bin = row[f'{db_name}_pident_bins']
+
+            if bin is None or bin != bin:
+                return None
+            return f'{row[f"{db_name}_pident_bins"]}_{row["csv"][:-4]}_{row["id"]}'
+
+        df['name'] = df.apply(_name, axis=1)
+
+    logger.info('Begin plddt calculation.')
+
+    if args.af_output_dir is None:
+        raise ValueError('Please specify --af_output_dir.')
+    alphafold_dir = Path(args.af_output_dir)
+
+    plddt = {}
+    df_fs = {}
+    df_ = None
+
+    subdirs = sorted(subdir for subdir in alphafold_dir.glob('*') if subdir.is_dir())
+    for subdir in tqdm(subdirs, desc='plddt and foldseek'):
+        k = subdir.name.replace('output_', '')
+
+        tmp_dir = Path('.foldseek')
+        tmp_subdir = tmp_dir / 'pdb'
+        tmp_dir.mkdir(exist_ok=True)
+        tmp_subdir.mkdir(exist_ok=True)
+
+        # plddt
+        bfactors = []
+        for pdb in subdir.glob('ranked_*.pdb'):
+            copyfile(pdb, tmp_subdir / pdb.name)
+            bfactor = np.mean(extract_bfactors(pdb))
+            bfactors.append(bfactor)
+
+        if not bfactors:
+            # raise ValueError(f'No pdb found in {subdir}.')
+            logger.warning(f'No pdb found in {subdir}. Skip.')
+            continue
+
+        plddt[k] = np.mean(bfactors)
+
+        # foldseek
+        foldseek_path = Path(args.foldseek_db_path)
+        df_ = easy_search(
+            query_dir=tmp_subdir,
+            query_db=tmp_dir / 'query_db',
+            pregenerated_target_db=foldseek_path,
+            result=tmp_dir / 'result',
+        )
+        df_.columns = [f'{col}_fs' for col in df_.columns]
+        rmtree(tmp_dir)
+
+        idx = df_['fident_fs'].idxmax()
+        df_fs[k] = df_.loc[idx].to_dict()
+
+    if df_ is None:
+        raise ValueError('No alphafold subdirectory found.')
+
+    df['plddt'] = df['name'].apply(lambda x: plddt.get(x, None))
+    for col in df_.columns:
+        df[col] = df['name'].apply(lambda x: df_fs.get(x, {}).get(col, None))
+
+    output_csv.rename(f'{output_csv}.bak')  # backup old csv
+    df.to_csv(output_csv, index=False)
 
 
 if __name__ == '__main__':
