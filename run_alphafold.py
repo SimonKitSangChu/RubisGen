@@ -171,7 +171,7 @@ def main():
                 if col in df.columns:
                     df.loc[sr, f'{db_name}_{col}'] = df.loc[sr, col]
 
-        sr_ = df[f'{db_name}_pident'].isna()
+        sr_ = ~df[f'{db_name}_pident'].isna()
         df.loc[sr_, f'{db_name}_pident_bins'] = pd.cut(
             df.loc[sr_, f'{db_name}_pident'],
             bins=pident_bins,
@@ -184,13 +184,13 @@ def main():
                 return None
             return f'{row[f"{db_name}_pident_bins"]}_{row["csv"][:-4]}_{row["id"]}'
 
-        df['name'] = df.apply(_name, axis=1)
+        df.loc[sr_, 'name'] = df.loc[sr_].apply(_name, axis=1)
         df.to_csv(output_csv, index=False)
 
         # 4. prepare for alphafold run
         logger.info('Prepare AlphaFold inputs.')
 
-        sequences_af = df_af.set_index('name')['sequence'].to_dict()
+        sequences_af = df[sr_].set_index('name')['sequence'].to_dict()
         records_af = sequences2records(sequences_af)
         write_fasta(output_fasta, records_af.values())
 
@@ -206,6 +206,10 @@ def main():
     if 'plddt' in df.columns and 'pident_fs' in df.columns:
         # no need to re-calculate
         logger.info(f'plddt and pident_fs already calculated. Skip.')
+        return
+
+    if args.af_output_dir is None:
+        logger.info('AlphaFold output not given. Ends here.')
         return
 
     # for backward compatibility
