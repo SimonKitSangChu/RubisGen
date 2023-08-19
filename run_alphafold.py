@@ -227,9 +227,9 @@ def main():
 
         def _name(row):
             row = row.to_dict()
-            bin = row[f'{db_name}_pident_bins']
+            bin_ = row[f'{db_name}_pident_bins']
 
-            if bin is None or bin != bin:
+            if bin_ is None or bin_ != bin_:
                 return None
             return f'{row[f"{db_name}_pident_bins"]}_{row["csv"][:-4]}_{row["id"]}'
 
