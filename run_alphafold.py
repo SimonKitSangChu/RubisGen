@@ -28,6 +28,7 @@ parser.add_argument('--input_dirs', required=True, nargs='+',
 parser.add_argument('--output_dir', default='alphafold', help='Output directory')
 parser.add_argument('--max_loss', type=float, default=None, help='Maximum loss')
 parser.add_argument('--max_prob_disc', type=float, default=None, help='Maximum discriminator probability')
+parser.add_argument('--pident_bins', type=float, default=[], nargs='+', help='A list of pident bins from mmseqs alignment')
 parser.add_argument('--n_smallest', type=int, default=20, help='N smallest by loss or prob_disc')
 parser.add_argument('--max_repeats', type=int, default=10, help='Maximum number of repeats')
 parser.add_argument('--target_db_path', type=str, default=None, help='Path to blast database')
@@ -95,6 +96,8 @@ def main():
                 sr_ = sr_ & (df_af['loss'] <= args.max_loss)
             if args.max_prob_disc is not None:
                 sr_ = sr_ & (df_af['prob_disc'] <= args.max_prob_disc)
+            if args.pident_bins:
+                sr_ = sr_ & (df_af['pident_bins'].isin(args.pident_bins)
 
             df_af = df_af[sr_]
 
