@@ -275,12 +275,29 @@ def main():
             query_db=tmp_dir / 'query_db',
             pregenerated_target_db=foldseek_path,
             result=tmp_dir / 'result',
+            ignore_empty=True,
         )
         df_.columns = [f'{col}_fs' for col in df_.columns]
         rmtree(tmp_dir)
 
-        idx = df_['fident_fs'].idxmax()
-        df_fs[k] = df_.loc[idx].to_dict()
+        if df_['fident_fs'].isna().all() or df_.empty:
+            df_fs[k] = {
+                'query_fs': None,
+                'target_fs': None,
+                'fident_fs': 0,
+                'alnlen_fs': None,
+                'mismatch_fs': None,
+                'gapopen_fs': None,
+                'qstart_fs': None,
+                'qend_fs': None,
+                'tstart_fs': None,
+                'tend_fs': None,
+                'evalue_fs': None,
+                'bits_fs': None,
+            }
+        else:
+            idx = df_['fident_fs'].idxmax()
+            df_fs[k] = df_.loc[idx].to_dict()
 
     if df_ is None:
         raise ValueError('No alphafold subdirectory found.')

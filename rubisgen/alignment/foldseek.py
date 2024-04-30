@@ -4,6 +4,7 @@ import subprocess as sp
 from typing import Any, Dict, Iterable, Optional
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -28,11 +29,16 @@ def search(queryDB: PathLike, targetDB: PathLike, result: PathLike, clean_tmp: b
         sp.run('rm -rf tmp', shell=True, check=True)
 
 
-def parse_m8(m8: PathLike, format_columns: Optional[Iterable] = None) -> pd.DataFrame:
+def parse_m8(m8: PathLike, format_columns: Optional[Iterable] = None, ignore_empty: bool = False) -> pd.DataFrame:
     if format_columns is None:
         format_columns = 'query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits'.split(',')
 
-    df = pd.read_csv(m8, sep='\t', header=None)
+    try:
+        df = pd.read_csv(m8, sep='\t', header=None)
+    except EmptyDataError:
+        logger.warning(f'Emptpy foldseek result encountered. Skip.')
+        df = pd.DataFrame([[None] * len(format_columns)])
+
     df.columns = format_columns
     return df
 
@@ -45,6 +51,7 @@ def easy_search(
         pregenerated_target_db: Optional[PathLike] = None,
         result: str = 'result',
         drop_self: bool = True,
+        ignore_empty: bool = False,
 ) -> pd.DataFrame:
     create_db(query_dir, query_db)
 
@@ -56,7 +63,7 @@ def easy_search(
         create_db(target_dir, target_db)
 
     search(query_dir, target_db, result)
-    df = parse_m8(str(result) + '.m8')
+    df = parse_m8(str(result) + '.m8', ignore_empty=ignore_empty)
 
     if drop_self:
         df = df[df['query'] != df['target']]
