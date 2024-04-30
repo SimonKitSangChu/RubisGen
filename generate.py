@@ -30,6 +30,7 @@ def main():
     model = ProGenForCausalLM.from_pretrained(args.model_checkpoint)
     if torch.cuda.is_available():
         model = model.cuda()
+        model = model.half()  # half percision in inference mode
 
     # prepare generate config
     generate_config = {
