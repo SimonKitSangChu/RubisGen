@@ -122,7 +122,7 @@ def main():
                 records=[record],
                 db_path=target_db_path,
                 blastp_dir=blast_dir,
-                num_threads=args.num_threads,
+                num_threads=args.blast_num_threads,
             )
 
             alignment_title = best_hit['alignment_title']
@@ -138,6 +138,9 @@ def main():
         # align entries
         tqdm.pandas(desc=f'{args.input_files}: blastp')
         df.loc[sr_, ['pident', 'alignment_title', 'tseq', 'score', 'evalue']] = df[sr_].progress_apply(_score, axis=1)
+
+    else:
+        df[['pident', 'alignment_title', 'tseq', 'score', 'evalue']] = None
 
     df.to_csv(args.output_csv, index=False)
 

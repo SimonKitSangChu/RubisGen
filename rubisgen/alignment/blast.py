@@ -13,7 +13,7 @@ from rubisgen.util import write_fasta
 def create_blastdb(fasta_file: PathLike, db_name: PathLike):
     db_name = Path(db_name)
     db_dir = db_name.parent
-    if any('psq' in filename for filename in db_dir.glob(db_name.name + '.*')):
+    if any('psq' in str(filename) for filename in db_dir.glob(db_name.name + '.*')):
         return
 
     cmd = NcbimakeblastdbCommandline(dbtype='prot', input_file=fasta_file, out=db_name)

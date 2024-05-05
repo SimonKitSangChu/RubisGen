@@ -97,7 +97,7 @@ def main():
             if args.max_prob_disc is not None:
                 sr_ = sr_ & (df_af['prob_disc'] <= args.max_prob_disc)
             if args.pident_bins:
-                sr_ = sr_ & (df_af['pident_bins'].isin(args.pident_bins)
+                sr_ = sr_ & (df_af['pident_bins'].isin(args.pident_bins))
 
             df_af = df_af[sr_]
 
