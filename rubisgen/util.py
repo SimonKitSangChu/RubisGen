@@ -13,11 +13,6 @@ import torch
 from transformers.utils import logging
 from transformers.utils.hub import TRANSFORMERS_CACHE
 
-# logging config
-logging.set_verbosity_info()
-logger = logging.get_logger(__name__)
-
-
 IdsLike = Union[List[int], torch.IntTensor, torch.LongTensor]
 BatchIdsLike = Union[List[List[int]], torch.IntTensor, torch.LongTensor]
 

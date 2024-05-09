@@ -13,8 +13,6 @@ import torch
 
 from .util import read_fasta, unspace, write_json, clear_arrow_cache, train_val_test_split
 
-logger = logging.get_logger(__name__)
-
 
 def create_dataset(
         dataset_dir: Optional[PathLike],

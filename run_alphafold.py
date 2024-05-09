@@ -5,7 +5,7 @@ import os
 from shutil import rmtree, copyfile
 
 import numpy as np
-from transformers.utils import logging
+import logging
 from tqdm import tqdm
 
 from rubisgen.util import (
@@ -28,8 +28,8 @@ parser.add_argument('--input_dirs', required=True, nargs='+',
 parser.add_argument('--output_dir', default='alphafold', help='Output directory')
 parser.add_argument('--max_loss', type=float, default=None, help='Maximum loss')
 parser.add_argument('--max_prob_disc', type=float, default=None, help='Maximum discriminator probability')
-parser.add_argument('--pident_bins', type=float, default=[], nargs='+', help='A list of pident bins from mmseqs alignment')
-parser.add_argument('--n_smallest', type=int, default=20, help='N smallest by loss or prob_disc')
+parser.add_argument('--pident_bins', type=str, default=[], nargs='+', help='A list of pident bins from mmseqs alignment')
+parser.add_argument('--n_smallest', type=int, default=None, help='N smallest by loss or prob_disc')
 parser.add_argument('--max_repeats', type=int, default=10, help='Maximum number of repeats')
 parser.add_argument('--target_db_path', type=str, default=None, help='Path to blast database')
 parser.add_argument('--target_fasta', type=str, default=None, help='Path to target fasta')
@@ -39,8 +39,7 @@ parser.add_argument('--db_name', default=None, help='Name of blast database')
 parser.add_argument('--foldseek_db_path', default=None, help='Path to foldseek database')
 args = parser.parse_args()
 
-logging.set_verbosity_info()
-logger = logging.get_logger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def main():
@@ -62,7 +61,7 @@ def main():
     output_csv = output_dir / 'output.csv'
     
     if output_fasta.exists() and output_csv.exists():
-        logger.info('Load in csv and fasta from previous run.')
+        logging.info('Load in csv and fasta from previous run.')
         df = pd.read_csv(output_csv)
     else:
         # 1. load input csv(s)
@@ -82,11 +81,16 @@ def main():
                 df.append(df_af)
 
         df = pd.concat(df)
+        logging.info(f'{len(df)} sequences identified')
 
         # 2. filtering
         pident_bins = [0, 30, 40, 50, 60, 70, 100]
         pident_labels = ['0-30', '30-40', '40-50', '50-60', '60-70', '70-100']
         df['pident_bins'] = pd.cut(df['pident'], bins=pident_bins, labels=pident_labels, right=False)
+
+        if args.pident_bins:
+            df = df[df['pident_bins'].isin(args.pident_bins)]
+            logging.info(f'{len(df)} sequences passed through pident_bins criteria')
 
         sequences = set()
         for pident_bin, df_af in df.groupby('pident_bins'):
@@ -96,20 +100,24 @@ def main():
                 sr_ = sr_ & (df_af['loss'] <= args.max_loss)
             if args.max_prob_disc is not None:
                 sr_ = sr_ & (df_af['prob_disc'] <= args.max_prob_disc)
-            if args.pident_bins:
-                sr_ = sr_ & (df_af['pident_bins'].isin(args.pident_bins))
 
             df_af = df_af[sr_]
 
             # filter by top_n smallest
-            df1_ = df_af.nsmallest(args.n_smallest, 'prob_disc')
-            df2_ = df_af.nsmallest(args.n_smallest, 'loss')
+            if args.n_smallest is None:
+                sequences = sequences | set(df_af['sequence'])
+            else:
+                df1_ = df_af.nsmallest(args.n_smallest, 'prob_disc')
+                df2_ = df_af.nsmallest(args.n_smallest, 'loss')
+                sequences = sequences | set(df1_['sequence']) | set(df2_['sequence'])
 
-            sequences = sequences | set(df1_['sequence']) | set(df2_['sequence'])
+        logging.info(f'{len(sequences)} sequences passed through max_loss and max_prob_disc criteria')
 
         # filter by repetition
         sequences = {sequence for sequence in sequences \
                      if not has_repeats(sequence, max_repeats=args.max_repeats)}
+
+        logging.info(f'{len(sequences)} sequences passed through max_repeats criteria')
 
         # filter by cluster
         records_clust = easy_cluster(
@@ -124,12 +132,15 @@ def main():
         sr = (df['sequence'].isin(sequences_clust)) & \
             ~df['sequence'].duplicated()  # keep first duplicate occurrence
 
+        logging.info(f'{sr.sum()} sequences passed through clustering filter and deduplication')
+
+
         # 3. (re)align to full database
         if args.target_db_path is not None:
             blast_dir.mkdir(exist_ok=True, parents=True)
 
             if args.target_fasta is not None:
-                logger.info(f'Loading in target fasta {args.target_fasta}.')
+                logging.info(f'Loading in target fasta {args.target_fasta}.')
                 target_sequences = read_fasta(args.target_fasta, format='str')
 
             def _score(row):
@@ -155,7 +166,7 @@ def main():
             if f'{db_name}_pident' in df.columns:  # skip calculated entries
                 sr = sr & df[f'{db_name}_pident'].isna()
 
-            logger.info(f'Begin alignment to {db_name}')
+            logging.info(f'Begin alignment to {db_name}')
             tqdm.pandas(desc=f'Aligning to {db_name}')
             df.loc[sr, [
                 f'{db_name}_pident',
@@ -167,7 +178,7 @@ def main():
             ]] = df[sr].progress_apply(_score, axis=1)
 
         else:
-            logger.warning('No blast db given. Skip alignment.')
+            logging.warning('No blast db given. Skip alignment.')
 
             db_name = 'none'
             for col in ('pident', 'alignment_title', 'alignment_hit_def', 'tseq', 'score', 'evalue'):
@@ -191,7 +202,7 @@ def main():
         df.to_csv(output_csv, index=False)
 
         # 4. prepare for alphafold run
-        logger.info('Prepare AlphaFold inputs.')
+        logging.info('Prepare AlphaFold inputs.')
 
         sequences_af = df[sr_].set_index('name')['sequence'].to_dict()
         records_af = sequences2records(sequences_af)
@@ -208,11 +219,11 @@ def main():
 
     if 'plddt' in df.columns and 'pident_fs' in df.columns:
         # no need to re-calculate
-        logger.info(f'plddt and pident_fs already calculated. Skip.')
+        logging.info(f'plddt and pident_fs already calculated. Skip.')
         return
 
     if args.af_output_dir is None:
-        logger.info('AlphaFold output not given. Ends here.')
+        logging.info('AlphaFold output not given. Ends here.')
         return
 
     # for backward compatibility
@@ -238,7 +249,7 @@ def main():
 
         df['name'] = df.apply(_name, axis=1)
 
-    logger.info('Begin plddt calculation.')
+    logging.info('Begin plddt calculation.')
 
     if args.af_output_dir is None:
         raise ValueError('Please specify --af_output_dir.')
@@ -266,7 +277,7 @@ def main():
 
         if not bfactors:
             # raise ValueError(f'No pdb found in {subdir}.')
-            logger.warning(f'No pdb found in {subdir}. Skip.')
+            logging.warning(f'No pdb found in {subdir}. Skip.')
             continue
 
         plddt[k] = np.mean(bfactors)

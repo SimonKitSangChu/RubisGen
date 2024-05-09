@@ -7,9 +7,6 @@ import pandas as pd
 from pandas.errors import EmptyDataError
 from transformers.utils import logging
 
-logger = logging.get_logger(__name__)
-logging.set_verbosity_info()
-
 
 def kwargs2flags(kwargs: Dict[str, Any]) -> str:
     if not kwargs:

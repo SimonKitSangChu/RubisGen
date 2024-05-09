@@ -10,9 +10,6 @@ from transformers.utils import logging
 
 from rubisgen.util import write_fasta, sequences2records, read_fasta
 
-logger = logging.get_logger(__name__)
-logging.set_verbosity_info()
-
 
 def kwargs2flags(kwargs: Dict[str, Any]) -> str:
     if not kwargs:
