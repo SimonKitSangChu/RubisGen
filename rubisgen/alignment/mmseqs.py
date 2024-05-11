@@ -122,7 +122,7 @@ def easy_cluster(
     records = sequences2records(records)
     write_fasta(output_dir / 'mmseqs_cluster.fasta', records)
 
-    kwargs['min-seq-id'] = kwargs.pop('min-seq-id', 0.8)
+    kwargs['min-seq-id'] = kwargs.pop('min_seq_id', 0.8)
     cmd = f'mmseqs easy-cluster {kwargs2flags(kwargs)} {output_dir}/mmseqs_cluster.fasta {output_dir}/clustered {output_dir}/tmp'
     try:
         sp.run(cmd, shell=True, check=True, stdout=sp.PIPE, stderr=sp.PIPE)

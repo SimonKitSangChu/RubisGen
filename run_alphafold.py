@@ -28,6 +28,8 @@ parser.add_argument('--input_dirs', required=True, nargs='+',
 parser.add_argument('--output_dir', default='alphafold', help='Output directory')
 parser.add_argument('--max_loss', type=float, default=None, help='Maximum loss')
 parser.add_argument('--max_prob_disc', type=float, default=None, help='Maximum discriminator probability')
+parser.add_argument('--max_pident', type=float, default=None, help='Maximum percentage identity')
+parser.add_argument('--clustering_min_seq_id', type=float, default=0.8, help='Maximum percentage identity')
 parser.add_argument('--pident_bins', type=str, default=[], nargs='+', help='A list of pident bins from mmseqs alignment')
 parser.add_argument('--n_smallest', type=int, default=None, help='N smallest by loss or prob_disc')
 parser.add_argument('--max_repeats', type=int, default=10, help='Maximum number of repeats')
@@ -84,18 +86,18 @@ def main():
         logging.info(f'{len(df)} sequences identified')
 
         # 2. filtering
-        pident_bins = [0, 30, 40, 50, 60, 70, 100]
-        pident_labels = ['0-30', '30-40', '40-50', '50-60', '60-70', '70-100']
+        pident_bins = [0, 30, 40, 50, 60, 70, 80, 90, 100]
+        pident_labels = ['0-30', '30-40', '40-50', '50-60', '60-70', '70-80', '80-90', '90-100']
         df['pident_bins'] = pd.cut(df['pident'], bins=pident_bins, labels=pident_labels, right=False)
-
-        if args.pident_bins:
-            df = df[df['pident_bins'].isin(args.pident_bins)]
-            logging.info(f'{len(df)} sequences passed through pident_bins criteria')
 
         sequences = set()
         for pident_bin, df_af in df.groupby('pident_bins'):
-            # filter by criteria
+            # filter by pident, loss and prob_disc
             sr_ = pd.Series([True] * len(df_af), index=df_af.index)
+            if args.max_pident is not None:
+                if args.max_pident >= 1:
+                    raise ValueError(f'{args.max_pident} should not be larger than 1')
+                sr_ = sr_ & (df_af['pident'] <= args.max_pident * 100)
             if args.max_loss is not None:
                 sr_ = sr_ & (df_af['loss'] <= args.max_loss)
             if args.max_prob_disc is not None:
@@ -111,7 +113,7 @@ def main():
                 df2_ = df_af.nsmallest(args.n_smallest, 'loss')
                 sequences = sequences | set(df1_['sequence']) | set(df2_['sequence'])
 
-        logging.info(f'{len(sequences)} sequences passed through max_loss and max_prob_disc criteria')
+        logging.info(f'{len(sequences)} sequences passed through max_pident, max_loss and max_prob_disc criteria')
 
         # filter by repetition
         sequences = {sequence for sequence in sequences \
@@ -124,6 +126,7 @@ def main():
             sequences,
             output_dir='.cluster',
             clean_up=True,
+            min_seq_id=args.clustering_min_seq_id,
         )
         sequences_clust = records2sequences(records_clust)
         sequences_clust = set(sequences_clust.values())
@@ -194,17 +197,25 @@ def main():
         )
 
         def _name(row):
-            if row[f'{db_name}_pident_bins'] is None:
+            pident_bins = row[f'{db_name}_pident_bins']
+            alignment_title = row[f'{db_name}_alignment_title']
+            if pident_bins is None:
                 return None
-            return f'{row[f"{db_name}_pident_bins"]}_{row["csv"][:-4]}_{row["id"]}'
+            # filter out form I and IV
+            if 'FORM I ' in alignment_title.upper() or 'FORM IV ' in alignment_title.upper():
+                return None
+            return f'{pident_bins}_{row["csv"][:-4]}_{row["id"]}'
 
+        sr_ = ~df[f'{db_name}_alignment_title'].isna()
         df.loc[sr_, 'name'] = df.loc[sr_].apply(_name, axis=1)
+        logging.info(f'{(~df["name"].isna()).sum()} sequences passed through all filtering'
+
         df.to_csv(output_csv, index=False)
 
         # 4. prepare for alphafold run
         logging.info('Prepare AlphaFold inputs.')
 
-        sequences_af = df[sr_].set_index('name')['sequence'].to_dict()
+        sequences_af = df[~df['name'].isna()].set_index('name')['sequence'].to_dict()
         records_af = sequences2records(sequences_af)
         write_fasta(output_fasta, records_af.values())
 
