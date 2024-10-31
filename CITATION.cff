@@ -1,0 +1,15 @@
+# CITATION.cff
+cff-version: 1.2.0
+message: "Please cite this repository as followed."
+title: "RubisGen: Generating RuBisCo sequences with protein language models"
+repository-code: "https://github.com/SimonKitSangChu/RubisGen"
+authors:
+  - family-names: "Kehl"
+    given-names: "Alex"
+    affiliation: "University of California, Davis"
+  - family-names: "Chu"
+    given-names: "Simon Kit Sang"
+    orcid: "0009-0009-8405-8544"
+    affiliation: "University of California, Davis"
+date-released: "2024-10-31"
+url: "https://github.com/SimonKitSangChu/RubisGen"
