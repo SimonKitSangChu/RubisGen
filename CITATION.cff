@@ -5,7 +5,7 @@ title: "RubisGen: Generating RuBisCo sequences with protein language models"
 repository-code: "https://github.com/SimonKitSangChu/RubisGen"
 authors:
   - family-names: "Kehl"
-    given-names: "Alex"
+    given-names: "Alexander J."
     affiliation: "University of California, Davis"
   - family-names: "Chu"
     given-names: "Simon Kit Sang"
